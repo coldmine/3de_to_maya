@@ -23,9 +23,11 @@ import time
 import tempfile
 import subprocess
 import multiprocessing
+from itertools import islice
+from functools import partial
 
-TEMP = tempfile.gettempdir()
-NCPUS = multiprocessing.cpu_count()
+
+
 
 #
 # functions...
@@ -630,7 +632,7 @@ else:
                             inSeqDur = tde4.getCameraNoFrames(cam)
 
                             # Export JPG Sequence with oiiotool
-                            tde4.postProgressRequesterAndContinue("Exporting JPG Sequence...", "Exporting Frame 1", inSeqDur, "stop")
+                            commands = []
                             for i in range(1, inSeqDur+1):
                                 inSeqPath = tde4.getCameraFrameFilepath(cam,i) # /storage/show/studio75mm_190102_circle/scenes/S01/0010/plate/dpx/S01_0010.0001.dpx
                                 inSeqFile = os.path.basename(inSeqPath) # "S01_0010.0001.dpx"
@@ -638,18 +640,21 @@ else:
 
                                 outSeqPath = "{0}/{1}.jpg".format(jpgPlateDir, inSeqRoot) # /storage/show/studio75mm_190102_circle/scenes/S01/0010/plate/jpg/S01_0010.0001.jpg
 
-                                tde4.updateProgressRequester(i,"Exporting Frame {0}...".format(i))
+                                commands.append("oiiotool {0} --threads 1 --quality 100 -v -o {1}".format(inSeqPath, outSeqPath)) # --sRGB
 
-                                command = "oiiotool {0} --threads 1 --quality 100 -v -o {1}".format(inSeqPath, outSeqPath) # --sRGB
-                                process = subprocess.Popen(command, shell=True)
-                                '''
-                                if i%(NCPUS-1) == 0:
-                                    process.wait()
-                                '''
+                            p = multiprocessing.Pool(multiprocessing.cpu_count()-1)
 
-                            while process.poll() is None:
-                                time.sleep(0.5)
+                            #start = time.time()
+
+                            tde4.postProgressRequesterAndContinue("Exporting JPG Sequence...", "Exporting Frame 1", len(commands), "Stop")
+                            for i, returncode in enumerate(p.imap(partial(subprocess.call, shell=True), commands)):
+                                tde4.updateProgressRequester(i+1,"Exporting Frame {0}...".format(i+1))
+                                if returncode != 0:
+                                    print("%d command failed: %d" % (i, returncode))
                             tde4.unpostProgressRequester()
+
+                            #print 'Time elapsed: %s' % (time.time() - start)
+
                     ## Export JPG End ##
 
 
@@ -673,7 +678,7 @@ else:
                     mayaPrjPath = "{0}/maya/{1}_v{2:02d}_w{3:02d}{4}".format(tdePrjDir.split('/3de')[0], shot, ver, wip, '.ma')
                     mayaPrjDir = "{0}/maya".format(tdePrjDir.split('/3de')[0])
 
-                    with open(r"{0}/tde4_mel.txt".format(TEMP),"w") as f:
+                    with open(r"{0}/tde4_mel.txt".format(tempfile.gettempdir()),"w") as f:
                         f.write("{0} {1} {2} {3} {4} {5} {6}".format(tdePrjPath[:-3]+'mel', IMAGE_WIDTH, IMAGE_HEIGHT, JPG_EXIST, outSeqFirstFramePath, mayaPrjPath, mayaPrjDir))
                     ## Export Scene Metadata to Maya End ##
 
